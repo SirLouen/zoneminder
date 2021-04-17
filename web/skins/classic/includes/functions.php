@@ -266,7 +266,7 @@ function getNormalNavBarHTML($running, $user, $bandwidth_options, $view, $skin) 
           echo getDbConHTML();
           echo getStorageHTML();
           echo getShmHTML();
-          echo getLogIconHTML();
+          #echo getLogIconHTML();
           ?>
         </ul>
 
@@ -718,7 +718,7 @@ function getMontageReviewHTML($view) {
 function getSnapshotsHTML($view) {
   $result = '';
   
-  if ( canView('Events') ) {
+  if ( canView('Snapshots') ) {
     $class = $view == 'snapshots' ? ' selected' : '';
     $result .= '<li id="getSnapshotsHTML" class="nav-item dropdown"><a class="nav-link'.$class.'" href="?view=snapshots">' .translate('Snapshots'). '</a></li>'.PHP_EOL;
   }
@@ -883,9 +883,9 @@ function xhtmlFooter() {
   $viewJsFile = getSkinFile('views/js/'.$basename.'.js');
   $viewJsPhpFile = getSkinFile('views/js/'.$basename.'.js.php');
 ?>
-  <script src="skins/<?php echo $skin; ?>/js/jquery.min.js"></script>
+  <script src="<?php echo cache_bust('skins/'.$skin.'/js/jquery.min.js'); ?>"></script>
   <script src="skins/<?php echo $skin; ?>/js/jquery-ui-1.12.1/jquery-ui.min.js"></script>
-  <script src="skins/<?php echo $skin; ?>/js/bootstrap.min.js"></script>
+  <script src="<?php echo cache_bust('skins/'.$skin.'/js/bootstrap.min.js'); ?>"></script>
 <?php echo output_script_if_exists(array(
   'js/tableExport.min.js',
   'js/bootstrap-table.min.js',

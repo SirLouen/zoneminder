@@ -126,6 +126,29 @@ function dataOnClick() {
       window[fnName](ev);
     };
   });
+  document.querySelectorAll("button[data-on-mousedown]").forEach(function(el) {
+    var fnName = el.getAttribute("data-on-mousedown");
+    if ( !window[fnName] ) {
+      console.error("Nothing found to bind to " + fnName + " on element " + el.name);
+      return;
+    }
+
+    el.onmousedown = function(ev) {
+      window[fnName](ev);
+    };
+  });
+  document.querySelectorAll("button[data-on-mouseup]").forEach(function(el) {
+    var fnName = el.getAttribute("data-on-mouseup");
+    if ( !window[fnName] ) {
+      console.error("Nothing found to bind to " + fnName + " on element " + el.name);
+      return;
+    }
+
+    el.onmouseup = function(ev) {
+      window[fnName](ev);
+    };
+  });
+
 }
 
 // 'data-on-click-true' calls the global function in the attribute value with no arguments when a click happens.
@@ -331,7 +354,7 @@ if ( currentView != 'none' && currentView != 'login' ) {
   }
 
   function getNavBar() {
-    $j.getJSON(thisUrl + '?view=request&request=status&entity=navBar')
+    $j.getJSON(thisUrl + '?view=request&request=status&entity=navBar' + (auth_relay?'&'+auth_relay:''))
         .done(setNavBar)
         .fail(function(jqxhr, textStatus, error) {
           console.log("Request Failed: " + textStatus + ", " + error);

@@ -162,6 +162,7 @@ $SLANG = array(
     'BadAnalysisUpdateDelay'=> 'Analysis update delay must be set to an integer of zero or more',
     'BadChannel'            => 'Channel must be set to an integer of zero or more',
     'BadDevice'             => 'Device must be set to a valid value',
+    'BadEncoderParameters'  => 'Encoder does not work well without at least a value for crf. Please see the help.',
     'BadFormat'             => 'Format must be set to a valid value',
     'BadFPSReportInterval'  => 'FPS report interval buffer count must be an integer of 0 or more',
     'BadFrameSkip'          => 'Frame skip count must be an integer of zero or more',
@@ -322,6 +323,7 @@ $SLANG = array(
     'DoNativeMotionDetection'=> 'Do Native Motion Detection',
     'Download'              => 'Download',
     'DuplicateMonitorName'  => 'Duplicate Monitor Name',
+    'DuplicateRTSPStreamName' =>  'Duplicate RTSP Stream Name',
     'Duration'              => 'Duration',
     'Edit'                  => 'Edit',
     'EditControl'           => 'Edit Control',
@@ -441,6 +443,7 @@ $SLANG = array(
     'Idle'                  => 'Idle',
     'Ignore'                => 'Ignore',
     'ImageBufferSize'       => 'Image Buffer Size (frames)',
+    'MaxImageBufferCount'   => 'Maximum Image Buffer Size (frames)',
     'Image'                 => 'Image',
     'Images'                => 'Images',
     'Include'               => 'Include',
@@ -1136,6 +1139,19 @@ $OLANG = array(
       When in Record or Nodect mode and using H264Passthrough with no jpegs being saved, we can
       optionally choose to not decode the H264/H265 packets.  This will drastically reduce cpu use
       but will make live view unavailable for this monitor.'
+  ),
+  'ImageBufferCount' => array(
+    'Help' => '
+    Number of raw images available in /dev/shm. Currently should be set in the 3-5 range.  Used for live viewing.'
+  ),
+  'MaxImageBufferCount' => array(
+    'Help' => '
+    Maximum number of video packets that will be held in the packet queue.
+    The packetqueue will normally manage itself, keeping Pre Event Count frames or all since last keyframe if using 
+    passthrough mode. You can set a maximum to prevent the monitor from consuming too much ram, but your events might
+    not have all the frames they should if your keyframe interval is larger than this value.
+    You will get errors in your logs about this. So make sure your keyframe interval is low or you have enough ram.
+  '
   ),
 
 //    'LANG_DEFAULT' => array(

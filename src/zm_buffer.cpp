@@ -39,8 +39,11 @@ unsigned int Buffer::expand(unsigned int count) {
   int headSpace = mHead - mStorage;
   int tailSpace = spare - headSpace;
   int width = mTail - mHead;
-  if ( spare > static_cast<int>(count) ) {
+  if ( spare >= static_cast<int>(count) ) {
+    // There is enough space in the allocation might need to shift everything over though
+    //
     if ( tailSpace < static_cast<int>(count) ) {
+      // if there is extra space at the head, shift everything over
       memmove(mStorage, mHead, mSize);
       mHead = mStorage;
       mTail = mHead + width;
@@ -62,8 +65,9 @@ unsigned int Buffer::expand(unsigned int count) {
 int Buffer::read_into(int sd, unsigned int bytes) {
   // Make sure there is enough space
   this->expand(bytes);
-  int bytes_read = read(sd, mTail, bytes);
-  if ( bytes_read > 0 ) {
+  Debug(3, "Reading %u btes", bytes);
+  int bytes_read = ::read(sd, mTail, bytes);
+  if (bytes_read > 0) {
     mTail += bytes_read;
     mSize += bytes_read;
   }
@@ -71,25 +75,16 @@ int Buffer::read_into(int sd, unsigned int bytes) {
 }
 
 int Buffer::read_into(int sd, unsigned int bytes, struct timeval timeout) {
-  // Make sure there is enough space
-  this->expand(bytes);
-
   fd_set set;
   FD_ZERO(&set); /* clear the set */
   FD_SET(sd, &set); /* add our file descriptor to the set */
-
   int rv = select(sd + 1, &set, NULL, NULL, &timeout);
   if (rv == -1) {
     Error("Error %d %s from select", errno, strerror(errno));
     return rv;
   } else if (rv == 0) {
-    printf("timeout"); /* a timeout occured */
+    Debug(1, "timeout"); /* a timeout occured */
     return 0;
   }
-  int bytes_read = read(sd, mTail, bytes);
-  if ( bytes_read > 0 ) {
-    mTail += bytes_read;
-    mSize += bytes_read;
-  }
-  return bytes_read;
+  return read_into(sd, bytes);
 }

@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
   zmLoadDBConfig();
   logInit(log_id_string);
 
-  hwcaps_detect();
+  HwCapsDetect();
 
   std::vector<std::shared_ptr<Monitor>> monitors;
 #if ZM_HAS_V4L
@@ -254,7 +254,8 @@ int main(int argc, char *argv[]) {
 
       while (monitor->PrimeCapture() <= 0) {
         if (prime_capture_log_count % 60) {
-          Error("Failed to prime capture of initial monitor");
+          logPrintf(Logger::ERROR+monitor->Importance(),
+              "Failed to prime capture of initial monitor");
         } else {
           Debug(1, "Failed to prime capture of initial monitor");
         }
@@ -346,23 +347,20 @@ int main(int argc, char *argv[]) {
 
     for (size_t i = 0; i < monitors.size(); i++) {
       monitors[i]->Close();
+      monitors[i]->disconnect();
     }
 
     delete [] alarm_capture_delays;
     delete [] capture_delays;
     delete [] last_capture_times;
 
-    if (result < 0 and !zm_terminate) {
-      // Failure, try reconnecting
-      Debug(1, "Sleeping for 5");
-      sleep(5);
-    }
     if (zm_reload) {
       for (std::shared_ptr<Monitor> &monitor : monitors) {
         monitor->Reload();
       }
       logTerm();
       logInit(log_id_string);
+      
       zm_reload = false;
     }  // end if zm_reload
   }  // end while ! zm_terminate outer connection loop

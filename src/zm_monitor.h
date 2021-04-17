@@ -234,7 +234,7 @@ protected:
   protected:
   // These are read from the DB and thereafter remain unchanged
   unsigned int    id;
-  char            name[64];
+  std::string     name;
   unsigned int    server_id;          // Id of the Server object
   unsigned int    storage_id;         // Id of the Storage Object, which currently will just provide a path, but in future may do more.
   CameraType      type;
@@ -252,7 +252,7 @@ protected:
   std::string path;
   std::string second_path;
 
-  char            device[64];
+  std::string     device;
   int             palette;
   int             channel;
   int             format;
@@ -288,14 +288,13 @@ protected:
   int        hue;          // The statically saved hue of the camera
   int        colour;          // The statically saved colour of the camera
 
-  char       event_prefix[64];    // The prefix applied to event names as they are created
-  char       label_format[64];    // The format of the timestamp on the images
+  std::string     event_prefix;    // The prefix applied to event names as they are created
+  std::string     label_format;    // The format of the timestamp on the images
   Coord      label_coord;      // The coordinates of the timestamp on the images
   int        label_size;         // Size of the timestamp on the images
-  int32_t   image_buffer_count;   // Size of circular image buffer, at least twice the size of the pre_event_count
-  int        pre_event_buffer_count;   // Size of dedicated circular pre event buffer used when analysis is not performed at capturing framerate,
-  // value is pre_event_count + alarm_frame_count - 1
-  int        warmup_count;      // How many images to process before looking for events
+  int32_t    image_buffer_count;        // Size of circular image buffer, kept in /dev/shm
+  int32_t    max_image_buffer_count;    // Max # of video packets to keep in packet queue
+  int        warmup_count;              // How many images to process before looking for events
   int        pre_event_count;    // How many images to hold and prepend to an alarm event
   int        post_event_count;    // How many unalarmed images must occur before the alarm state is reset
   int        stream_replay_buffer;   // How many frames to store to support DVR functions, IGNORED from this object, passed directly into zms now
@@ -320,6 +319,7 @@ protected:
   bool        embed_exif; // Whether to embed Exif data into each image frame or not
   bool        rtsp_server; // Whether to include this monitor as an rtsp server stream
   std::string rtsp_streamname;      // path in the rtsp url for this monitor
+  int         importance;           // Importance of this monitor, affects Connection logging errors.
 
   int capture_max_fps;
 
@@ -377,12 +377,18 @@ protected:
   VideoStore          *videoStore;
   PacketQueue      packetqueue;
   packetqueue_iterator  *analysis_it;
-  AnalysisThread        *analysis_thread;
+  std::unique_ptr<AnalysisThread> analysis_thread;
   packetqueue_iterator  *decoder_it;
-  DecoderThread         *decoder;
+  std::unique_ptr<DecoderThread> decoder;
+  AVFrame *dest_frame;                    // Used by decoding thread doing colorspace conversions
+  SwsContext   *convert_context;
+  std::thread  close_event_thread;
 
-  int      n_zones;
+  std::list<Zone> zones;
+  /*
+int      n_zones;
   Zone      **zones;
+  */
 
   const unsigned char  *privacy_bitmask;
 
@@ -405,11 +411,12 @@ public:
   ~Monitor();
 
   void AddZones( int p_n_zones, Zone *p_zones[] );
-  void AddPrivacyBitmask( Zone *p_zones[] );
+  void AddPrivacyBitmask();
 
   void LoadCamera();
   bool connect();
   bool disconnect();
+  inline bool isConnected() const { return mem_ptr != nullptr; }
 
   inline int ShmValid() const {
     if ( shared_data && shared_data->valid ) {
@@ -424,7 +431,7 @@ public:
   }
 
   inline unsigned int Id() const { return id; }
-  inline const char *Name() const { return name; }
+  inline const char *Name() const { return name.c_str(); }
   inline unsigned int ServerId() { return server_id; }
   inline Storage *getStorage() {
     if ( ! storage ) {
@@ -443,7 +450,7 @@ public:
   inline bool DecodingEnabled() const {
     return decoding_enabled;
   }
-  inline const char *EventPrefix() const { return event_prefix; }
+  inline const char *EventPrefix() const { return event_prefix.c_str(); }
   inline bool Ready() const {
     if ( image_count >= ready_count ) {
       return true;
@@ -555,7 +562,7 @@ public:
   bool Decode();
   void DumpImage( Image *dump_image ) const;
   void TimestampImage( Image *ts_image, const struct timeval *ts_time ) const;
-  bool closeEvent();
+  void closeEvent();
 
   void Reload();
   void ReloadZones();
@@ -590,6 +597,7 @@ public:
   double get_analysis_fps( ) const {
     return shared_data ? shared_data->analysis_fps : 0.0;
   }
+  int Importance() { return importance; }
 };
 
 #define MOD_ADD( var, delta, limit ) (((var)+(limit)+(delta))%(limit))

@@ -37,16 +37,14 @@ $mid = null;
 $monitor = null;
 if ( !empty($_REQUEST['mid']) ) {
   $mid = validInt($_REQUEST['mid']);
-
   $monitor = new ZM\Monitor($mid);
   if ( $monitor and ZM_OPT_X10 )
     $x10Monitor = dbFetchOne('SELECT * FROM TriggersX10 WHERE MonitorId = ?', NULL, array($mid));
 }
 
 if ( !$monitor ) {
-  $nextId = getTableAutoInc('Monitors');
   $monitor = new ZM\Monitor();
-  $monitor->Name(translate('Monitor').'-'.$nextId);
+  $monitor->Name(translate('Monitor').'-'.getTableAutoInc('Monitors'));
   $monitor->WebColour(random_colour());
 } # end if $_REQUEST['mid']
 
@@ -964,12 +962,12 @@ include('_monitor_source_nvsocket.php');
 			0 => 'Disabled',
 			);
 
-  $videowriteropts[1] = 'X264 Encode';
+  $videowriteropts[1] = 'Encode';
 
   if ( $monitor->Type() == 'Ffmpeg' )
-    $videowriteropts[2] = 'H264 Camera Passthrough';
+    $videowriteropts[2] = 'Camera Passthrough';
   else
-    $videowriteropts[2] = array('text'=>'H264 Camera Passthrough - only for FFMPEG','disabled'=>1);
+    $videowriteropts[2] = array('text'=>'Camera Passthrough - only for FFMPEG','disabled'=>1);
 	echo htmlSelect('newMonitor[VideoWriter]', $videowriteropts, $monitor->VideoWriter());
 ?>
               </td>
@@ -1061,8 +1059,12 @@ echo htmlSelect('newMonitor[OutputContainer]', $videowriter_containers, $monitor
     {
 ?>
             <tr>
-              <td class="text-right pr-3"><?php echo translate('ImageBufferSize') ?></td>
+              <td class="text-right pr-3"><?php echo translate('ImageBufferSize'); echo makeHelpLink('ImageBufferCount'); ?></td>
               <td><input type="number" name="newMonitor[ImageBufferCount]" value="<?php echo validHtmlStr($monitor->ImageBufferCount()) ?>" min="1"/></td>
+            </tr>
+            <tr>
+              <td class="text-right pr-3"><?php echo translate('MaxImageBufferCount'); echo makeHelpLink('MaxImageBufferCount'); ?></td>
+              <td><input type="number" name="newMonitor[MaxImageBufferCount]" value="<?php echo validHtmlStr($monitor->MaxImageBufferCount()) ?>" min="0"/></td>
             </tr>
             <tr>
               <td class="text-right pr-3"><?php echo translate('WarmupFrames') ?></td>
@@ -1083,10 +1085,6 @@ echo htmlSelect('newMonitor[OutputContainer]', $videowriter_containers, $monitor
             <tr>
               <td class="text-right pr-3"><?php echo translate('AlarmFrameCount') ?></td>
               <td><input type="number" name="newMonitor[AlarmFrameCount]" value="<?php echo validHtmlStr($monitor->AlarmFrameCount()) ?>" min="1"/></td>
-            </tr>
-            <tr>
-              <td class="text-right pr-3"><?php echo translate('Estimated Ram Use') ?></td>
-              <td id="estimated_ram_use"><?php echo human_filesize($monitor->ImageBufferCount() * $monitor->Width() * $monitor->Height() * $monitor->Colours(), 0) ?></td>
             </tr>
 <?php
       break;
@@ -1253,6 +1251,19 @@ echo htmlSelect('newMonitor[ReturnLocation]', $return_options, $monitor->ReturnL
         <tr>
           <td class="text-right pr-3"><?php echo translate('RTSPStreamName'); echo makeHelpLink('OPTIONS_RTSPSTREAMNAME') ?></td>
           <td><input type="text" name="newMonitor[RTSPStreamName]" value="<?php echo validHtmlStr($monitor->RTSPStreamName()) ?>"/></td>
+        </tr>
+        <tr>
+          <td class="text-right pr-3"><?php echo translate('Importance'); echo makeHelpLink('OPTIONS_IMPORTANCE') ?></td>
+          <td>
+<?php
+      echo htmlselect('newMonitor[Importance]',
+              array(
+                'Not'=>translate('Not important'),
+                'Less'=>translate('Less important'),
+                'Normal'=>translate('Normal')
+              ), $monitor->Importance());
+?>
+          </td>
         </tr>
 <?php
         break;

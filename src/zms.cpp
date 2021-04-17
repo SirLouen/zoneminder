@@ -229,7 +229,7 @@ int main(int argc, const char *argv[], char **envp) {
     user = nullptr;
   }  // end if config.opt_use_auth
 
-  hwcaps_detect();
+  HwCapsDetect();
   zmSetDefaultTermHandler();
   zmSetDefaultDieHandler();
 
@@ -241,8 +241,9 @@ int main(int argc, const char *argv[], char **envp) {
 
   time_t now = time(nullptr);
   char date_string[64];
+  tm now_tm = {};
   strftime(date_string, sizeof(date_string)-1,
-      "%a, %d %b %Y %H:%M:%S GMT", gmtime(&now));
+      "%a, %d %b %Y %H:%M:%S GMT", gmtime_r(&now, &now_tm));
 
   fputs("Last-Modified: ", stdout);
   fputs(date_string, stdout);

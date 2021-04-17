@@ -9,19 +9,18 @@ class Monitor;
 
 class DecoderThread {
  public:
-  explicit DecoderThread(Monitor* monitor);
-  //explicit DecoderThread(std::shared_ptr<Monitor> monitor);
+  explicit DecoderThread(Monitor *monitor);
   ~DecoderThread();
   DecoderThread(DecoderThread &rhs) = delete;
   DecoderThread(DecoderThread &&rhs) = delete;
 
+  void Start();
   void Stop() { terminate_ = true; }
 
  private:
   void Run();
 
-  Monitor* monitor_;
-  //std::shared_ptr<Monitor> monitor_;
+  Monitor *monitor_;
   std::atomic<bool> terminate_;
   std::thread thread_;
 };

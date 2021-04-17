@@ -1,12 +1,13 @@
 target_compile_options(zm-warning-interface
   INTERFACE
     -Wall
-    -Wconditionally-supported
+    $<$<VERSION_GREATER:$<CXX_COMPILER_VERSION>,5.0>:-Wconditionally-supported>
     -Wextra
     -Wformat-security
     -Wno-cast-function-type
-    -Wno-type-limits
-    -Wno-unused-parameter)
+    $<$<VERSION_LESS_EQUAL:$<CXX_COMPILER_VERSION>,10>:-Wno-clobbered>
+    -Wno-unused-parameter
+    -Woverloaded-virtual)
 
 if(ASAN)
   target_compile_options(zm-compile-option-interface

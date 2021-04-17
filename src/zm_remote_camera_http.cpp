@@ -224,6 +224,9 @@ int RemoteCameraHttp::ReadData(Buffer &buffer, unsigned int bytes_expected) {
     // Why are we disconnecting?  It's just a timeout, meaning that data wasn't available.
     //Disconnect();
     return 0;
+  } else if (n_found == EINTR) {
+    Error("Select interrupted");
+    return 0;
   } else if (n_found < 0) {
     Error("Select error: %s", strerror(errno));
     return -1;
@@ -297,8 +300,8 @@ int RemoteCameraHttp::ReadData(Buffer &buffer, unsigned int bytes_expected) {
 int RemoteCameraHttp::GetData() {
 	time_t start_time = time(nullptr);
 	int buffer_len = 0;
-	while ( !( buffer_len = ReadData(buffer) ) ) {
-			if ( zm_terminate ||  ( start_time - time(nullptr) < ZM_WATCH_MAX_DELAY ))
+	while (!(buffer_len = ReadData(buffer))) {
+			if (zm_terminate or ( (time(nullptr) - start_time) > ZM_WATCH_MAX_DELAY ))
 				return -1;
 		Debug(4, "Timeout waiting for REGEXP HEADER");
 		usleep(100000);
@@ -618,7 +621,7 @@ int RemoteCameraHttp::GetResponse() {
             content_type[0] = '\0';
             content_boundary[0] = '\0';
             content_boundary_len = 0;
-            [[gnu::fallthrough]];
+            FALLTHROUGH;
           }
         case HEADERCONT :
           {
@@ -835,7 +838,7 @@ int RemoteCameraHttp::GetResponse() {
             subcontent_type_header[0] = '\0';
             content_length = 0;
             content_type[0] = '\0';
-            [[gnu::fallthrough]];
+            FALLTHROUGH;
           }
         case SUBHEADERCONT :
           {

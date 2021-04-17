@@ -118,15 +118,16 @@ commonprep () {
         fi
     fi
 
-    if [ -e "build/RtspServer" ]; then
-      echo "Found existing RtspServer..."
+    RTSPVER="e3bc639d265ba4274270c4a9bf6ada517c0cca11"
+    if [ -e "build/RtspServer-${RTSPVER}.tar.gz" ]; then
+        echo "Found existing RtspServer ${RTSPVER} tarball..."
     else
-      echo "Cloning RtspServer ..."
-      git clone https://github.com/ZoneMinder/RtspServer build/RtspServer
-      if [ $? -ne 0 ]; then
-        echo "ERROR: RtspServer clone failed..."
-        exit 1
-      fi
+        echo "Retrieving RTSP ${RTSPVER} submodule..."
+        curl -L https://github.com/ZoneMinder/RtspServer/archive/${RTSPVER}.tar.gz > build/RtspServer-${RTSPVER}.tar.gz
+        if [ $? -ne 0 ]; then
+            echo "ERROR: RtspServer tarball retreival failed..."
+            exit 1
+        fi
     fi
 }
 
@@ -151,9 +152,10 @@ movecrud () {
     if [ -e "dep/RtspServer/CMakeLists.txt" ]; then
         echo "RtspServer already installed..."
     else
-        echo "Copying RtspServer..."
-        rm -r dep/RtspServer
-        cp -Rpd build/RtspServer dep/RtspServer
+        echo "Unpacking RtspServer..."
+        tar -xzf build/RtspServer-${RTSPVER}.tar.gz
+        rmdir dep/RtspServer
+        mv -f RtspServer-${RTSPVER} dep/RtspServer
     fi
 }
 
@@ -218,7 +220,9 @@ setdebpkgname () {
 
     # Set VERSION to {zm version}~{today's date}.{number of commits} e.g. 1.31.0~20170605.82
     # Set RELEASE to the packpack DIST variable e.g. Trusty
-    export VERSION="${versionfile}~${thedate}.${numcommits}"
+    if [ "" == "$VERSION" ]; then
+      export VERSION="${versionfile}~${thedate}.${numcommits}"
+    fi
     export RELEASE="${DIST}"
 
     checkvars

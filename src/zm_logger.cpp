@@ -166,7 +166,7 @@ void Logger::initialise(const std::string &id, const Options &options) {
     tempSyslogLevel = atoi(envPtr);
 
   if ( config.log_debug ) {
-    StringVector targets = split(config.log_debug_target, "|");
+    StringVector targets = Split(config.log_debug_target, "|");
     for ( unsigned int i = 0; i < targets.size(); i++ ) {
       const std::string &target = targets[i];
       if ( target == mId || target == "_"+mId || target == "_"+mIdRoot || target == "" ) {
@@ -447,7 +447,8 @@ void Logger::logPrint(bool hex, const char * const filepath, const int line, con
   } else {
 #endif
     char *timePtr = timeString;
-    timePtr += strftime(timePtr, sizeof(timeString), "%x %H:%M:%S", localtime(&timeVal.tv_sec));
+    tm now_tm = {};
+    timePtr += strftime(timePtr, sizeof(timeString), "%x %H:%M:%S", localtime_r(&timeVal.tv_sec, &now_tm));
     snprintf(timePtr, sizeof(timeString)-(timePtr-timeString), ".%06ld", timeVal.tv_usec);
 #if 0
   }

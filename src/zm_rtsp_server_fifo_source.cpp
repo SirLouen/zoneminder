@@ -9,6 +9,7 @@
 ** -------------------------------------------------------------------------*/
 
 #include "zm_rtsp_server_fifo_source.h"
+#include "zm_rtsp_server_frame.h"
 
 #include "zm_config.h"
 #include "zm_ffmpeg.h"
@@ -25,40 +26,119 @@ ZoneMinderFifoSource::ZoneMinderFifoSource(
     xop::MediaChannelId channelId,
     std::string fifo
     ) :
+  stop_(false),
   m_rtspServer(rtspServer),
   m_sessionId(sessionId),
   m_channelId(channelId),
 	m_fifo(fifo),
-  m_fd(-1)
+  m_fd(-1),
+  m_hType(0)
 {
-	memset(&m_thid, 0, sizeof(m_thid));
-	memset(&m_mutex, 0, sizeof(m_mutex));
-  pthread_mutex_init(&m_mutex, nullptr);
-  pthread_create(&m_thid, nullptr, threadStub, this);
+  read_thread_ = std::thread(&ZoneMinderFifoSource::ReadRun, this);
+  write_thread_ = std::thread(&ZoneMinderFifoSource::WriteRun, this);
 }
 
 ZoneMinderFifoSource::~ZoneMinderFifoSource() {
   Debug(1, "Deleting Fifo Source");
-  stop = 1;
-	pthread_join(m_thid, nullptr);
+    Stop();
+  if (read_thread_.joinable())
+    read_thread_.join();
+  if (write_thread_.joinable())
+    write_thread_.join();
   Debug(1, "Deleting Fifo Source done");
-	pthread_mutex_destroy(&m_mutex);
 }
 
 // thread mainloop
-void* ZoneMinderFifoSource::thread() {
-	stop = 0;
-
-	while (!stop) {
-		if (getNextFrame() < 0) sleep(1);
+void ZoneMinderFifoSource::ReadRun() {
+  if (stop_) Warning("bad value for stop_ in ReadRun");
+	while (!stop_) {
+		if (getNextFrame() < 0) {
+      Debug(1, "Sleeping");
+      sleep(1);
+    }
 	}
-	return nullptr;
+}
+void ZoneMinderFifoSource::WriteRun() {
+  size_t maxNalSize = 1400;
+
+  if (stop_) Warning("bad value for stop_ in WriteRun");
+	while (!stop_) {
+    NAL_Frame *nal = nullptr;
+    while (!stop_ and !nal) {
+      std::unique_lock<std::mutex> lck(mutex_);
+      if (m_nalQueue.empty()) {
+        Debug(3, "waiting");
+        condition_.wait(lck);
+      }
+      if (!m_nalQueue.empty()) {
+        nal = m_nalQueue.front();
+        m_nalQueue.pop();
+      }
+    }
+
+    if (nal) {
+      if (1 and (nal->size() > maxNalSize)) {
+        Debug(1, "SPlitting NAL %d", nal->size());
+        size_t nalRemaining = nal->size();
+        u_int8_t *nalSrc = nal->buffer();
+
+        int fuNalSize = maxNalSize;
+       // ? nalRemaining : maxNalSize;
+        NAL_Frame fuNal(nullptr, fuNalSize, nal->pts());
+        memcpy(fuNal.buffer()+1, nalSrc, fuNalSize-1);
+
+        if (m_hType == 264) {
+          fuNal.buffer()[0] = (nalSrc[0] & 0xE0) | 28; // FU indicator
+          fuNal.buffer()[1] = 0x80 | (nalSrc[0] & 0x1F); // FU header (with S bit)
+        } else { // 265
+          u_int8_t nalUnitType = (nalSrc[0]&0x7E)>>1;
+          fuNal.buffer()[0] = (nalSrc[0] & 0x81) | (49<<1); // Payload header (1st byte)
+          fuNal.buffer()[1] = nalSrc[1]; // Payload header (2nd byte)
+          fuNal.buffer()[2] = 0x80 | nalUnitType; // FU header (with S bit)
+        }
+        PushFrame(fuNal.buffer(), fuNal.size(), fuNal.pts());
+        nalRemaining -= maxNalSize-1;
+        nalSrc += maxNalSize-1;
+        int nal_count = 0;
+
+        int headerSize = 0;
+        if (m_hType == 264) {
+          fuNal.buffer()[1] = fuNal.buffer()[1]&~0x80; // FU header (no S bit)
+          headerSize = 2;
+        } else { // 265
+          fuNal.buffer()[2] = fuNal.buffer()[2]&~0x80; // FU header (no S bit)
+          headerSize = 3;
+        }
+        while (nalRemaining) {
+          if ( nalRemaining < maxNalSize ) {
+            // This is the last fragment:
+            fuNal.buffer()[headerSize-1] |= 0x40; // set the E bit in the FU header
+          }
+          fuNalSize = (nalRemaining < maxNalSize-headerSize) ? nalRemaining : maxNalSize-headerSize;
+          fuNal.size(fuNalSize+headerSize);
+          memcpy(fuNal.buffer()+headerSize, nalSrc, fuNalSize);
+
+          PushFrame(fuNal.buffer(), fuNal.size(), fuNal.pts());
+          nalRemaining -= fuNalSize;
+          nalSrc += fuNalSize;
+          nal_count += 1;
+        }
+        Debug(1, "Sending %d NALs @ %d and 1 @ %d", nal_count, maxNalSize, fuNal.size());
+      } else {
+        Debug(3, "Pushing nal of size %d at %" PRId64, nal->size(), nal->pts());
+        PushFrame(nal->buffer(), nal->size(), nal->pts());
+      }
+      delete nal;
+      nal = nullptr;
+      Debug(3, "Done Pushing nal");
+    }  // end if nal
+	}  // end while !_stop
 }
 
 // read from monitor
 int ZoneMinderFifoSource::getNextFrame() {
-  if (zm_terminate or stop) {
-    Debug(1, "Terminating %d %d", zm_terminate, stop);
+  if (zm_terminate or stop_) {
+    Debug(1, "Terminating %d %d", zm_terminate, (stop_==true?1:0));
     return -1;
   }
 
@@ -71,7 +151,8 @@ int ZoneMinderFifoSource::getNextFrame() {
     }
   }
 
-  int bytes_read = m_buffer.read_into(m_fd, 4096, {1,0});
+  int bytes_read = m_buffer.read_into(m_fd, 32);
+  //int bytes_read = m_buffer.read_into(m_fd, 4096, {1,0});
   if (bytes_read == 0) {
     Debug(3, "No bytes read");
     sleep(1);
@@ -84,7 +165,7 @@ int ZoneMinderFifoSource::getNextFrame() {
     return -1;
   }
 
-  Debug(1, "%s bytes read %d bytes, buffer size %u", m_fifo.c_str(), bytes_read, m_buffer.size());
+  Debug(3, "%s bytes read %d bytes, buffer size %u", m_fifo.c_str(), bytes_read, m_buffer.size());
   while (m_buffer.size()) {
     unsigned int data_size = 0;
     int64_t pts;
@@ -108,7 +189,7 @@ int ZoneMinderFifoSource::getNextFrame() {
       char *content_length_ptr = strchr(header, ' ');
       if (!content_length_ptr) {
         Debug(1, "Didn't find space delineating size in %s", header);
-        m_buffer.consume(header_start-m_buffer.head() + 2);
+        m_buffer.consume((header_start-m_buffer.head()) + 2);
         delete[] header;
         return 0;
       }
@@ -116,7 +197,7 @@ int ZoneMinderFifoSource::getNextFrame() {
       content_length_ptr ++;
       char *pts_ptr = strchr(content_length_ptr, ' ');
       if (!pts_ptr) {
-        m_buffer.consume(header_start-m_buffer.head() + 2);
+        m_buffer.consume((header_start-m_buffer.head()) + 2);
         Debug(1, "Didn't find space delineating pts in %s", header);
         delete[] header;
         return 0;
@@ -125,10 +206,11 @@ int ZoneMinderFifoSource::getNextFrame() {
       pts_ptr ++;
       data_size = atoi(content_length_ptr);
       pts = strtoll(pts_ptr, nullptr, 10);
-      Debug(4, "ZM Packet %s header_size %d packet size %u pts %" PRId64, header, header_size, data_size, pts);
+      Debug(4, "ZM Packet %s header_size %d packet size %u pts %s %" PRId64, header, header_size, data_size, pts_ptr, pts);
       delete[] header;
     } else {
       Debug(1, "ZM header not found in %d of buffer:%s.", m_buffer.size(), m_buffer.head());
+      m_buffer.clear();
       return 0;
     }
     if (header_start != m_buffer) {
@@ -142,23 +224,40 @@ int ZoneMinderFifoSource::getNextFrame() {
     int bytes_needed = data_size - (m_buffer.size() - header_size);
     if (bytes_needed > 0) {
       Debug(4, "Need another %d bytes. Trying to read them", bytes_needed);
-      int bytes_read = m_buffer.read_into(m_fd, bytes_needed);
-      if ( bytes_read != bytes_needed ) {
-        Debug(1, "Failed to read another %d bytes, got %d.", bytes_needed, bytes_read);
-        return -1;
-      }
+      while (bytes_needed) {
+        int bytes_read = m_buffer.read_into(m_fd, bytes_needed);
+        if (bytes_read <= 0) {
+          Debug(1, "Failed to read another %d bytes, got %d.", bytes_needed, bytes_read);
+          return -1;
+        }
+
+        if (bytes_read != bytes_needed) {
+          Debug(4, "Failed to read another %d bytes, got %d.", bytes_needed, bytes_read);
+        }
+        bytes_needed -= bytes_read;
+      }  // end while bytes_neeeded
     }
-    m_buffer.consume(header_size);
-    unsigned char *packet_start = m_buffer.head();
+    //Debug(4, "Consuming %d", header_size);
+    //m_buffer.consume(header_size);
+
+    unsigned char *packet_start = m_buffer.head() + header_size;
     size_t bytes_remaining = data_size;
     std::list< std::pair<unsigned char*, size_t> > framesList = this->splitFrames(packet_start, bytes_remaining);
-    Debug(3, "Got %d frames, consuming %d bytes, remaining %d", framesList.size(), header_size + data_size, bytes_remaining);
-    m_buffer.consume(data_size);
-    while (framesList.size()) {
-      std::pair<unsigned char*, size_t> nal = framesList.front();
-      framesList.pop_front();
-      PushFrame(nal.first, nal.second, pts);
+    m_buffer.consume(data_size+header_size);
+    Debug(3, "Got %d frames, consuming %d bytes, remaining %d", framesList.size(), data_size+header_size, bytes_remaining);
+
+    {
+      std::unique_lock<std::mutex> lck(mutex_);
+      Debug(3, "have lock");
+      while (framesList.size()) {
+        std::pair<unsigned char*, size_t> nal = framesList.front();
+        framesList.pop_front();
+        NAL_Frame *Nal = new NAL_Frame(nal.first, nal.second, pts);
+        m_nalQueue.push(Nal);
+      }
     }
+    Debug(1, "notifying");
+    condition_.notify_all();
   } // end while m_buffer.size()
   return 1;
 }

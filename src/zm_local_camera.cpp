@@ -798,10 +798,10 @@ void LocalCamera::Initialise() {
         );
 
     if ( v4l2_data.fmt.fmt.pix.width != width ) {
-        Warning("Failed to set requested width");
+      Warning("Failed to set requested width");
     }
     if ( v4l2_data.fmt.fmt.pix.height != height ) {
-        Warning("Failed to set requested height");
+      Warning("Failed to set requested height");
     }
 
     /* Buggy driver paranoia. */
@@ -1414,20 +1414,20 @@ bool LocalCamera::GetCurrentSettings(
         if ( verbose )
           output_ptr += sprintf(
               output_ptr,
-              "  %s (0x%02hhx%02hhx%02hhx%02hhx)\n",
+              "  %s (0x%02x%02x%02x%02x)\n",
               format.description,
-              (format.pixelformat>>24)&0xff,
-              (format.pixelformat>>16)&0xff,
-              (format.pixelformat>>8)&0xff,
-              format.pixelformat&0xff);
+              (format.pixelformat >> 24) & 0xff,
+              (format.pixelformat >> 16) & 0xff,
+              (format.pixelformat >> 8) & 0xff,
+              format.pixelformat & 0xff);
         else
           output_ptr += sprintf(
               output_ptr,
-              "0x%02hhx%02hhx%02hhx%02hhx/",
-              (format.pixelformat>>24)&0xff,
-              (format.pixelformat>>16)&0xff,
-              (format.pixelformat>>8)&0xff,
-              (format.pixelformat)&0xff);
+              "0x%02x%02x%02x%02x/",
+              (format.pixelformat >> 24) & 0xff,
+              (format.pixelformat >> 16) & 0xff,
+              (format.pixelformat >> 8) & 0xff,
+              format.pixelformat & 0xff);
       } while ( formatIndex++ >= 0 );
 
       if ( !verbose )
@@ -2087,8 +2087,11 @@ int LocalCamera::Capture(ZMPacket &zm_packet) {
       buffer_bytesused = v4l2_data.bufptr->bytesused;
       bytes += buffer_bytesused;
 
-      if ( (v4l2_data.fmt.fmt.pix.width * v4l2_data.fmt.fmt.pix.height) !=  (width * height) ) {
-        Fatal("Captured image dimensions differ: V4L2: %dx%d monitor: %dx%d",
+      if ( (v4l2_data.fmt.fmt.pix.width * v4l2_data.fmt.fmt.pix.height) > (width * height) ) {
+        Fatal("Captured image dimensions larger than image buffer: V4L2: %dx%d monitor: %dx%d",
+            v4l2_data.fmt.fmt.pix.width, v4l2_data.fmt.fmt.pix.height, width, height);
+      } else if ( (v4l2_data.fmt.fmt.pix.width * v4l2_data.fmt.fmt.pix.height) != (width * height) ) {
+        Error("Captured image dimensions differ: V4L2: %dx%d monitor: %dx%d",
             v4l2_data.fmt.fmt.pix.width, v4l2_data.fmt.fmt.pix.height, width, height);
       }
     } // end if v4l2

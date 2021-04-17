@@ -38,6 +38,7 @@ extern "C" {
 
 #include <string>
 
+time_t              start_read_time;
 #if HAVE_LIBAVUTIL_HWCONTEXT_H
 #if LIBAVCODEC_VERSION_CHECK(57, 89, 0, 89, 0)
 static enum AVPixelFormat hw_pix_fmt;
@@ -172,6 +173,7 @@ FfmpegCamera::~FfmpegCamera() {
 }
 
 int FfmpegCamera::PrimeCapture() {
+  start_read_time = time(nullptr);
   if ( mCanCapture ) {
     Debug(1, "Priming capture from %s, Closing", mPath.c_str());
     Close();
@@ -190,6 +192,7 @@ int FfmpegCamera::PreCapture() {
 int FfmpegCamera::Capture(ZMPacket &zm_packet) {
   if (!mCanCapture) return -1;
 
+  start_read_time = time(nullptr);
   int ret;
 
   if ( mSecondFormatContext and
@@ -200,10 +203,13 @@ int FfmpegCamera::Capture(ZMPacket &zm_packet) {
       ) ) {
     // if audio stream is behind video stream, then read from audio, otherwise video
     mFormatContextPtr = mSecondFormatContext;
-    Debug(2, "Using audio input");
+    Debug(4, "Using audio input because audio PTS %" PRId64 " < video PTS %" PRId64,
+        av_rescale_q(mLastAudioPTS, mAudioStream->time_base, AV_TIME_BASE_Q),
+        av_rescale_q(mLastVideoPTS, mVideoStream->time_base, AV_TIME_BASE_Q)
+        );
   } else {
     mFormatContextPtr = mFormatContext;
-    Debug(2, "Using video input because %" PRId64 " >= %" PRId64,
+    Debug(4, "Using video input because %" PRId64 " >= %" PRId64,
         (mAudioStream?av_rescale_q(mLastAudioPTS, mAudioStream->time_base, AV_TIME_BASE_Q):0),
         av_rescale_q(mLastVideoPTS, mVideoStream->time_base, AV_TIME_BASE_Q)
         );
@@ -240,9 +246,15 @@ int FfmpegCamera::Capture(ZMPacket &zm_packet) {
   zm_packet.pts = av_rescale_q(packet.pts, stream->time_base, AV_TIME_BASE_Q);
   if ( packet.pts != AV_NOPTS_VALUE ) {
     if ( stream == mVideoStream ) {
-      mLastVideoPTS = packet.pts;
+      if (mFirstVideoPTS == AV_NOPTS_VALUE)
+        mFirstVideoPTS = packet.pts;
+
+      mLastVideoPTS = packet.pts - mFirstVideoPTS;
     } else {
-      mLastAudioPTS = packet.pts;
+      if (mFirstAudioPTS == AV_NOPTS_VALUE)
+        mFirstAudioPTS = packet.pts;
+
+      mLastAudioPTS = packet.pts - mFirstAudioPTS;
     }
   }
   zm_av_packet_unref(&packet);
@@ -273,7 +285,7 @@ int FfmpegCamera::OpenFfmpeg() {
 
   // Set transport method as specified by method field, rtpUni is default
   std::string protocol = mPath.substr(0, 4);
-  string_toupper(protocol);
+  StringToUpper(protocol);
   if ( protocol == "RTSP" ) {
     const std::string method = Method();
     if ( method == "rtpMulti" ) {
@@ -540,7 +552,7 @@ int FfmpegCamera::OpenFfmpeg() {
       mAudioCodecContext = mAudioStream->codec;
 #endif
 
-      zm_dump_stream_format(mFormatContext, mAudioStreamId, 0, 0);
+      zm_dump_stream_format((mSecondFormatContext?mSecondFormatContext:mFormatContext), mAudioStreamId, 0, 0);
       // Open the codec
 #if !LIBAVFORMAT_VERSION_CHECK(53, 8, 0, 8, 0)
       if ( avcodec_open(mAudioCodecContext, mAudioCodec) < 0 )
@@ -605,9 +617,16 @@ int FfmpegCamera::Close() {
 }  // end FfmpegCamera::Close
 
 int FfmpegCamera::FfmpegInterruptCallback(void *ctx) {
-  // FfmpegCamera* camera = reinterpret_cast<FfmpegCamera*>(ctx);
-  // Debug(4, "FfmpegInterruptCallback");
-  return zm_terminate;
+  if (zm_terminate) {
+    Debug(1, "Received terminate in cb");
+    return zm_terminate;
+  }
+  time_t now = time(nullptr);
+  if (now - start_read_time > 10) {
+    Debug(1, "timeout in ffmpeg camera now %d - %d > 10", now, start_read_time);
+    return 1;
+  }
+  return 0;
 }
 
 #endif  // HAVE_LIBAVFORMAT

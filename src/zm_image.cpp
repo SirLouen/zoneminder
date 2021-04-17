@@ -240,7 +240,7 @@ int Image::PopulateFrame(AVFrame *frame) {
       nullptr, /* opaque */
       0 /* flags */
       );
-  if ( !ref ) {
+  if (!ref) {
     Warning("Failed to create av_buffer");
   }
   frame->buf[0] = ref;
@@ -266,42 +266,48 @@ int Image::PopulateFrame(AVFrame *frame) {
   Debug(1, "PopulateFrame: width %d height %d linesize %d colours %d imagesize %d", width, height, linesize, colours, size);
   zm_dump_video_frame(frame, "Image.Populate(frame)");
   return 1;
-}
+}  // int Image::PopulateFrame(AVFrame *frame)
 
-void Image::Assign(const AVFrame *frame) {
+bool Image::Assign(const AVFrame *frame) {
   /* Assume the dimensions etc are correct. FIXME */
 
   // Desired format
   AVPixelFormat format = (AVPixelFormat)AVPixFormat();
-
   AVFrame *dest_frame = zm_av_frame_alloc();
-  PopulateFrame(dest_frame);
-  zm_dump_video_frame(frame, "source frame before convert");
-  dest_frame->pts = frame->pts;
-#if HAVE_LIBSWSCALE
   sws_convert_context = sws_getCachedContext(
       sws_convert_context,
       frame->width, frame->height, (AVPixelFormat)frame->format,
       width, height, format,
-      //SWS_BICUBIC,
-      SWS_POINT | SWS_BITEXACT,
+      SWS_BICUBIC,
+      //SWS_POINT | SWS_BITEXACT,
       nullptr, nullptr, nullptr);
-  if ( sws_convert_context == nullptr )
-    Fatal("Unable to create conversion context");
-
-  if ( sws_scale(sws_convert_context,
-        frame->data, frame->linesize, 0, frame->height,
-        dest_frame->data, dest_frame->linesize) < 0 )
-    Fatal("Unable to convert raw format %u %ux%u to target format %u %ux%u",
-        frame->format, frame->width, frame->height,
-        format, width, height);
-#else // HAVE_LIBSWSCALE
-  Fatal("You must compile ffmpeg with the --enable-swscale option to use ffmpeg cameras");
-#endif // HAVE_LIBSWSCALE
-  zm_dump_video_frame(dest_frame, "dest frame after convert");
+  if (sws_convert_context == nullptr) {
+    Error("Unable to create conversion context");
+    return false;
+  }
+  bool result = Assign(frame, sws_convert_context, dest_frame);
   av_frame_free(&dest_frame);
   update_function_pointers();
+  return result;
 }  // end Image::Assign(const AVFrame *frame)
+
+bool Image::Assign(const AVFrame *frame, SwsContext *convert_context, AVFrame *temp_frame) {
+  PopulateFrame(temp_frame);
+  zm_dump_video_frame(frame, "source frame before convert");
+  temp_frame->pts = frame->pts;
+  AVPixelFormat format = (AVPixelFormat)AVPixFormat();
+
+  if (sws_scale(convert_context,
+        frame->data, frame->linesize, 0, frame->height,
+        temp_frame->data, temp_frame->linesize) < 0) {
+    Error("Unable to convert raw format %u %ux%u to target format %u %ux%u",
+        frame->format, frame->width, frame->height,
+        format, width, height);
+    return false;
+  }
+  zm_dump_video_frame(temp_frame, "dest frame after convert");
+  return true;
+}  // end Image::Assign(const AVFrame *frame, SwsContext *convert_context, AVFrame *temp_frame)
 
 Image::Image(const Image &p_image) {
   if ( !initialised )
@@ -1186,7 +1192,8 @@ cinfo->out_color_space = JCS_RGB;
 
     // This is a lot of stuff to allocate on the stack.  Recommend char *timebuf[64];
     char timebuf[64], msbuf[64];
-    strftime(timebuf, sizeof timebuf, "%Y:%m:%d %H:%M:%S", localtime(&(timestamp.tv_sec)));
+    tm timestamp_tm = {};
+    strftime(timebuf, sizeof timebuf, "%Y:%m:%d %H:%M:%S", localtime_r(&timestamp.tv_sec, &timestamp_tm));
     snprintf(msbuf, sizeof msbuf, "%06d",(int)(timestamp.tv_usec));  // we only use milliseconds because that's all defined in exif, but this is the whole microseconds because we have it
     unsigned char exiftimes[82] = {
       0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00,
@@ -1731,7 +1738,7 @@ void Image::Blend( const Image &image, int transparency ) {
 
 #ifdef ZM_IMAGE_PROFILING
   clock_gettime(CLOCK_THREAD_CPUTIME_ID,&end);
-  timespec_diff(&start,&end,&diff);
+  TimespecDiff(&start,&end,&diff);
 
   executetime = (1000000000ull * diff.tv_sec) + diff.tv_nsec;
   milpixels = (unsigned long)((long double)size)/((((long double)executetime)/1000));
@@ -1895,7 +1902,7 @@ void Image::Delta(const Image &image, Image* targetimage) const {
 
 #ifdef ZM_IMAGE_PROFILING
   clock_gettime(CLOCK_THREAD_CPUTIME_ID,&end);
-  timespec_diff(&start,&end,&diff);
+  TimespecDiff(&start,&end,&diff);
 
   executetime = (1000000000ull * diff.tv_sec) + diff.tv_nsec;
   milpixels = (unsigned long)((long double)pixels)/((((long double)executetime)/1000));
@@ -2044,10 +2051,6 @@ void Image::Annotate(
       for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < char_height; y++, r++, ptr += width ) {
         unsigned char *temp_ptr = ptr;
         for ( unsigned int x = lo_line_x, c = 0; x < hi_line_x && c < line_len; c++ ) {
-          if ( line[c] > 0xFF ) {
-            Warning("Unsupported character %c in %s", line[c], line);
-            continue;
-          }
           uint64_t f = font_bitmap[(line[c] * char_height) + r];
           if ( !bg_trans ) memset(temp_ptr, bg_bw_col, char_width);
           while ( f != 0 ) {
@@ -2065,10 +2068,6 @@ void Image::Annotate(
       for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < char_height; y++, r++, ptr += wc ) {
         unsigned char *temp_ptr = ptr;
         for ( unsigned int x = lo_line_x, c = 0; x < hi_line_x && c < line_len; c++ ) {
-          if ( line[c] > 0xFF ) {
-            Warning("Unsupported character %c in %s", line[c], line);
-            continue;
-          }
           uint64_t f = font_bitmap[(line[c] * char_height) + r];
           if ( !bg_trans ) {
             for ( int i = 0; i < char_width; i++ ) {  // We need to set individual r,g,b components
@@ -2097,10 +2096,6 @@ void Image::Annotate(
       for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < char_height; y++, r++, ptr += wc ) {
         Rgb* temp_ptr = (Rgb*)ptr;
         for ( unsigned int x = lo_line_x, c = 0; x < hi_line_x && c < line_len; c++ ) {
-          if ( line[c] > 0xFF ) {
-            Warning("Unsupported character %c in %s", line[c], line);
-            continue;
-          }
           uint64_t f = font_bitmap[(line[c] * char_height) + r];
           if ( !bg_trans ) {
             for ( int i = 0; i < char_width; i++ )
@@ -2132,7 +2127,8 @@ void Image::Annotate(
 
 void Image::Timestamp( const char *label, const time_t when, const Coord &coord, const int size ) {
   char time_text[64];
-  strftime(time_text, sizeof(time_text), "%y/%m/%d %H:%M:%S", localtime(&when));
+  tm when_tm = {};
+  strftime(time_text, sizeof(time_text), "%y/%m/%d %H:%M:%S", localtime_r(&when, &when_tm));
   if ( label ) {
     // Assume label is max 64, + ' - ' + 64 chars of time_text
     char text[132];
@@ -4724,8 +4720,8 @@ void ssse3_convert_yuyv_gray8(const uint8_t* col1, uint8_t* result, unsigned lon
 
 /* YUYV to RGB24 - relocated from zm_local_camera.cpp */
 __attribute__((noinline)) void zm_convert_yuyv_rgb(const uint8_t* col1, uint8_t* result, unsigned long count) {
-  unsigned int r,g,b;
-  unsigned int y1,y2,u,v;
+  int32 r,g,b;
+  int32 y1,y2,u,v;
   for(unsigned int i=0; i < count; i += 2, col1 += 4, result += 6) {
     y1 = col1[0];
     u = col1[1];

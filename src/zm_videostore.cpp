@@ -155,7 +155,11 @@ bool VideoStore::open() {
         wanted_codec = AV_CODEC_ID_H264;
         // FIXME what is the optimal codec?  Probably low latency h264 which is effectively mjpeg
       } else {
-        Debug(2, "Codec wanted %d", wanted_codec);
+				if ( AV_CODEC_ID_H264 != 27 and wanted_codec > 3 ) {
+					// Older ffmpeg had AV_CODEC_ID_MPEG2VIDEO_XVMC at position 3 has been deprecated
+					wanted_codec += 1;
+				}
+        Debug(2, "Codec wanted %d %s", wanted_codec, avcodec_get_name((AVCodecID)wanted_codec));
       }
       std::string wanted_encoder = monitor->Encoder();
 
@@ -167,7 +171,12 @@ bool VideoStore::open() {
           }
         }
         if ( codec_data[i].codec_id != wanted_codec ) {
-          Debug(1, "Not the right codec %d != %d", codec_data[i].codec_id, wanted_codec);
+          Debug(1, "Not the right codec %d %s != %d %s",
+							codec_data[i].codec_id,
+							avcodec_get_name(codec_data[i].codec_id),
+							wanted_codec,
+							avcodec_get_name((AVCodecID)wanted_codec)
+							);
           continue;
         }
 
@@ -979,7 +988,7 @@ int VideoStore::writeVideoFramePacket(ZMPacket *zm_packet) {
             );
       } else if ( !zm_packet->in_frame ) {
         Debug(4, "Have no in_frame");
-        if ( zm_packet->packet.size ) {
+        if (zm_packet->packet.size and !zm_packet->decoded) {
           Debug(4, "Decoding");
           if ( !zm_packet->decode(video_in_ctx) ) {
             Debug(2, "unable to decode yet.");

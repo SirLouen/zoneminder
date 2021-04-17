@@ -35,9 +35,12 @@ class PacketQueue {
 
     int video_stream_id;
     int max_video_packet_count; // allow a negative value to someday mean unlimited
+                                // This is now a hard limit on the # of video packets to keep in the queue so that we can limit ram
+    int pre_event_video_packet_count; // Was max_video_packet_count
     int max_stream_id;
     int *packet_counts;     /* packet count for each stream_id, to keep track of how many video vs audio packets are in the queue */
     bool deleting;
+    bool keep_keyframes;
     std::list<packetqueue_iterator *> iterators;
 
     std::mutex mutex;
@@ -51,6 +54,8 @@ class PacketQueue {
 
     int addStream();
     void setMaxVideoPackets(int p);
+    void setPreEventVideoPackets(int p);
+    void setKeepKeyframes(bool k) { keep_keyframes = k; };
 
     bool queuePacket(ZMPacket* packet);
     ZMLockedPacket * popPacket();
@@ -79,6 +84,7 @@ class PacketQueue {
         unsigned int pre_event_count
     );
     bool is_there_an_iterator_pointing_to_packet(ZMPacket *zm_packet);
+    void unlock(ZMLockedPacket *lp);
 };
 
 #endif /* ZM_PACKETQUEUE_H */

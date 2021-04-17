@@ -71,8 +71,8 @@ Event::Event(
   std::string notes;
   createNotes(notes);
 
-  struct timeval now;
-  gettimeofday(&now, 0);
+  timeval now = {};
+  gettimeofday(&now, nullptr);
 
   if ( !start_time.tv_sec ) {
     Warning("Event has zero time, setting to now");
@@ -80,15 +80,15 @@ Event::Event(
   } else if ( start_time.tv_sec > now.tv_sec ) {
     char buffer[26];
     char buffer_now[26];
-    struct tm* tm_info;
+    tm tm_info = {};
 
-    tm_info = localtime(&start_time.tv_sec);
-    strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-    tm_info = localtime(&now.tv_sec);
-    strftime(buffer_now, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+    localtime_r(&start_time.tv_sec, &tm_info);
+    strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", &tm_info);
+    localtime_r(&now.tv_sec, &tm_info);
+    strftime(buffer_now, 26, "%Y:%m:%d %H:%M:%S", &tm_info);
 
     Error(
-        "StartDateTime in the future starttime %u.%u >? now %u.%u difference %d\n%s\n%s",
+        "StartDateTime in the future starttime %ld.%06ld >? now %ld.%06ld difference %d\nstarttime: %s\nnow: %s",
         start_time.tv_sec, start_time.tv_usec, now.tv_sec, now.tv_usec,
         (now.tv_sec-start_time.tv_sec),
         buffer, buffer_now
@@ -358,7 +358,7 @@ void Event::updateNotes(const StringSetMap &newNoteSetMap) {
     createNotes(notes);
 
     Debug(2, "Updating notes for event %d, '%s'", id, notes.c_str());
-    static char sql[ZM_SQL_LGE_BUFSIZ];
+    char sql[ZM_SQL_LGE_BUFSIZ];
 #if USE_PREPARED_SQL
     static MYSQL_STMT *stmt = 0;
 
@@ -410,7 +410,7 @@ void Event::updateNotes(const StringSetMap &newNoteSetMap) {
     mysql_real_escape_string(&dbconn, escapedNotes, notes.c_str(), notes.length());
 
     snprintf(sql, sizeof(sql), "UPDATE `Events` SET `Notes` = '%s' WHERE `Id` = %" PRIu64, escapedNotes, id);
-    zmDbDo(sql);
+    dbQueue.push(std::move(sql));
 #endif
   }  // end if update
 }  // void Event::updateNotes(const StringSetMap &newNoteSetMap)
@@ -627,7 +627,7 @@ void Event::AddFrame(Image *image, struct timeval timestamp, int score, Image *a
       WriteDbFrames();
       last_db_frame = frames;
 
-      static char sql[ZM_SQL_MED_BUFSIZ];
+      char sql[ZM_SQL_MED_BUFSIZ];
       snprintf(sql, sizeof(sql), 
           "UPDATE Events SET Length = %s%ld.%02ld, Frames = %d, AlarmFrames = %d, TotScore = %d, AvgScore = %d, MaxScore = %d WHERE Id = %" PRIu64, 
           ( delta_time.positive?"":"-" ),
@@ -639,7 +639,7 @@ void Event::AddFrame(Image *image, struct timeval timestamp, int score, Image *a
           max_score,
           id
           );
-      zmDbDo(sql);
+      dbQueue.push(std::move(sql));
 		} else {
       Debug(1, "Not Adding %d frames to DB because write_to_db:%d or frames > analysis fps %f or BULK",
 					frame_data.size(), write_to_db, fps);
@@ -661,16 +661,17 @@ bool Event::SetPath(Storage *storage) {
     return false;
   }
 
-  struct tm *stime = localtime(&start_time.tv_sec);
+  tm stime = {};
+  localtime_r(&start_time.tv_sec, &stime);
   if ( scheme == Storage::DEEP ) {
 
     int dt_parts[6];
-    dt_parts[0] = stime->tm_year-100;
-    dt_parts[1] = stime->tm_mon+1;
-    dt_parts[2] = stime->tm_mday;
-    dt_parts[3] = stime->tm_hour;
-    dt_parts[4] = stime->tm_min;
-    dt_parts[5] = stime->tm_sec;
+    dt_parts[0] = stime.tm_year-100;
+    dt_parts[1] = stime.tm_mon+1;
+    dt_parts[2] = stime.tm_mday;
+    dt_parts[3] = stime.tm_hour;
+    dt_parts[4] = stime.tm_min;
+    dt_parts[5] = stime.tm_sec;
 
     std::string date_path;
     std::string time_path;
@@ -685,7 +686,7 @@ bool Event::SetPath(Storage *storage) {
       if ( i == 2 )
 				date_path = path;
     }
-		time_path = stringtf("%02d/%02d/%02d", stime->tm_hour, stime->tm_min, stime->tm_sec);
+		time_path = stringtf("%02d/%02d/%02d", stime.tm_hour, stime.tm_min, stime.tm_sec);
 
     // Create event id symlink
     std::string id_file = stringtf("%s/.%" PRIu64, date_path.c_str(), id);
@@ -695,7 +696,7 @@ bool Event::SetPath(Storage *storage) {
     }
   } else if ( scheme == Storage::MEDIUM ) {
     path += stringtf("/%04d-%02d-%02d",
-        stime->tm_year+1900, stime->tm_mon+1, stime->tm_mday
+        stime.tm_year+1900, stime.tm_mon+1, stime.tm_mday
         );
     if ( mkdir(path.c_str(), 0755) and ( errno != EEXIST ) ) {
       Error("Can't mkdir %s: %s", path.c_str(), strerror(errno));

@@ -71,7 +71,7 @@ class Monitor extends ZM_Object {
     'OutputCodec' =>  null,
     'Encoder'     =>  'auto',
     'OutputContainer' => null,
-    'EncoderParameters' => "# Lines beginning with # are a comment \n# For changing quality, use the crf option\n# 1 is best, 51 is worst quality\n#crf=23\n",
+    'EncoderParameters' => "# Lines beginning with # are a comment \n# For changing quality, use the crf option\n# 1 is best, 51 is worst quality\ncrf=23\n",
     'RecordAudio' =>  array('type'=>'boolean', 'default'=>0),
     'RTSPDescribe'  =>  array('type'=>'boolean','default'=>0),
     'Brightness'  =>  -1,
@@ -83,7 +83,8 @@ class Monitor extends ZM_Object {
     'LabelX'      =>  0,
     'LabelY'      =>  0,
     'LabelSize'   =>  1,
-    'ImageBufferCount'  =>  20,
+    'ImageBufferCount'  =>  3,
+    'MaxImageBufferCount'  =>  0,
     'WarmupCount' =>  0,
     'PreEventCount' =>  5,
     'PostEventCount'  =>  5,
@@ -130,6 +131,8 @@ class Monitor extends ZM_Object {
     'AnalysisFPS' => null,
     'CaptureFPS' => null,
     'CaptureBandwidth' => null,
+  );
+  private $summary_fields = array(
     'TotalEvents' =>  array('type'=>'integer', 'default'=>null, 'do_not_update'=>1),
     'TotalEventDiskSpace' =>  array('type'=>'integer', 'default'=>null, 'do_not_update'=>1),
     'HourEvents' =>  array('type'=>'integer', 'default'=>null, 'do_not_update'=>1),
@@ -182,14 +185,23 @@ class Monitor extends ZM_Object {
       }
       return $this->defaults[$fn];
     } else if ( array_key_exists($fn, $this->status_fields) ) {
-      $sql = 'SELECT `Status`,`CaptureFPS`,`AnalysisFPS`,`CaptureBandwidth`
-        FROM `Monitor_Status` WHERE `MonitorId`=?';
+      $sql = 'SELECT * FROM `Monitor_Status` WHERE `MonitorId`=?';
       $row = dbFetchOne($sql, NULL, array($this->{'Id'}));
       if ( !$row ) {
         Warning('Unable to load Monitor status record for Id='.$this->{'Id'}.' using '.$sql);
-        foreach ( $this->status_fields as $k => $v ) {
+        return null;
+      } else {
+        foreach ($row as $k => $v) {
           $this->{$k} = $v;
         }
+      }
+      return $this->{$fn};
+    } else if ( array_key_exists($fn, $this->summary_fields) ) {
+      $sql = 'SELECT * FROM `Event_Summaries` WHERE `MonitorId`=?';
+      $row = dbFetchOne($sql, NULL, array($this->{'Id'}));
+      if ( !$row ) {
+        Warning('Unable to load Event Summary record for Id='.$this->{'Id'}.' using '.$sql);
+        return null;
       } else {
         foreach ($row as $k => $v) {
           $this->{$k} = $v;
@@ -401,6 +413,8 @@ class Monitor extends ZM_Object {
     dbQuery('DELETE FROM Zones WHERE MonitorId = ?', array($this->{'Id'}));
     if ( ZM_OPT_X10 )
       dbQuery('DELETE FROM TriggersX10 WHERE MonitorId=?', array($this->{'Id'}));
+    dbQuery('DELETE FROM Monitor_Status WHERE MonitorId = ?', array($this->{'Id'}));
+    dbQuery('DELETE FROM Event_Summaries WHERE MonitorId = ?', array($this->{'Id'}));
     dbQuery('DELETE FROM Monitors WHERE Id = ?', array($this->{'Id'}));
   } // end function delete
 
@@ -579,19 +593,69 @@ class Monitor extends ZM_Object {
     return ( $user && ($user['Monitors'] == 'Edit') && ( !$this->{'Id'} || visibleMonitor($this->{'Id'}) ));
   }
 
+  function canView() {
+    global $user;
+    return ( $user && ($user['Monitors'] != 'None') && ( !$this->{'Id'} || visibleMonitor($this->{'Id'}) ));
+  }
+
+  function AlarmCommand($cmd) {
+    if ( (!defined('ZM_SERVER_ID')) or ( property_exists($this, 'ServerId') and (ZM_SERVER_ID==$this->{'ServerId'}) ) ) {
+      switch ($cmd) {
+      case 'on' : $cmd = ' -a'; break;
+      case 'off': $cmd = ' -c'; break;
+      case 'disable': $cmd = ' -n'; break;
+      case 'status': $cmd = ' -s'; break;
+      default:
+        Warning("Invalid command $cmd in AlarmCommand");
+        return false;
+      }
+
+      $cmd = getZmuCommand($cmd.' -m '.$this->{'Id'});
+      $output = shell_exec($cmd);
+      Debug("Running $cmd output: $output");
+      return $output;
+    }
+    
+    if ( $this->ServerId() ) {
+      $Server = $this->Server();
+
+      $url = $Server->UrlToApi().'/monitors/alarm/id:'.$this->{'Id'}.'/command:'.$cmd.'.json';
+      $auth_relay = get_auth_relay();
+      if ($auth_relay) $url .= '?'.$auth_relay;
+
+      Debug('sending command to '.$url);
+
+      $context = stream_context_create();
+      try {
+        $result = file_get_contents($url, false, $context);
+        if ( $result === FALSE ) { /* Handle error */
+          Error('Error sending command using '.$url);
+          return false;
+        }
+        Debug("Result $result");
+        $json = json_decode($result, true);
+        return $json['status'];
+
+      } catch ( Exception $e ) {
+        Error("Exception $e thrown trying to send command to $url");
+        return false;
+      }
+    } // end if we are on the recording server
+    Error('Server not assigned to Monitor in a multi-server setup. Please assign a server to the Monitor.');
+    return false;
+  }
   function TriggerOn() {
-    $cmd = getZmuCommand(' -a -m '.$this->{'Id'});
-    $output = shell_exec($cmd);
-    Debug("Running $cmd output: $output");
+    $output = $this->AlarmCommand('on');
     if ( $output and preg_match('/Alarmed event id: (\d+)$/', $output, $matches) ) {
       return $matches[1];
     }
     Warning("No event returned from TriggerOn");
-    return 0;
   }
   function TriggerOff() {
-    $cmd = getZmuCommand(' -c -m '.$this->{'Id'});
-    $output = shell_exec($cmd);
+    $output = $this->AlarmCommand('off');
+  }
+  function DisableAlarms() {
+    $output = $this->AlarmCommand('disable');
   }
 } // end class Monitor
 ?>

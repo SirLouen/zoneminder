@@ -139,9 +139,6 @@ function initPage() {
       form.submit();
     };
   });
-  document.querySelectorAll('input[name="newMonitor[ImageBufferCount]"],input[name="newMonitor[Width]"],input[name="newMonitor[Height]"]').forEach(function(el) {
-    el.oninput = window['update_estimated_ram_use'].bind(el);
-  });
 
   document.querySelectorAll('select[name="newMonitor[Function]"]').forEach(function(el) {
     el.onchange = function() {
@@ -266,15 +263,6 @@ function random_WebColour() {
   $j('#WebSwatch').css(
       'backgroundColor', new_colour
   );
-}
-
-function update_estimated_ram_use() {
-  var buffer_count = document.querySelectorAll('input[name="newMonitor[ImageBufferCount]"]')[0].value;
-  var width = document.querySelectorAll('input[name="newMonitor[Width]"]')[0].value;
-  var height = document.querySelectorAll('input[name="newMonitor[Height]"]')[0].value;
-  var colours = document.querySelectorAll('select[name="newMonitor[Colours]"]')[0].value;
-
-  document.getElementById('estimated_ram_use').innerHTML = human_filesize(buffer_count * width * height * colours, 0);
 }
 
 function updateLatitudeAndLongitude(latitude, longitude) {
